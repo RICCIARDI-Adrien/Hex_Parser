@@ -1,5 +1,5 @@
 /** Hex_Parser.c
- * @see Hex_Parser.h for description.
+ * See Hex_Parser.h for description.
  * @author Adrien RICCIARDI
  */
 #include <Hex_Parser.h>
@@ -11,9 +11,9 @@
 //-------------------------------------------------------------------------------------------------
 /** Define CONFIGURATION_HEX_PARSER_ENABLE_DEBUG_MESSAGES in the makefile to display debug messages. */
 #ifdef CONFIGURATION_HEX_PARSER_ENABLE_DEBUG_MESSAGES
-	#define Debug(Format, ...) printf(Format, ##__VA_ARGS__)
+	#define DEBUG(Format, ...) printf("[%s:%d] " Format, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 #else
-	#define Debug(Format, ...)
+	#define DEBUG(Format, ...) do {} while (0)
 #endif
 
 /** The maximum amount of data a record can contain. */
@@ -78,7 +78,7 @@ static THexParserRecordType HexParserParseLine(char *String_Hexadecimal_Line, in
 	THexParserRecordType Record_Type;
 	int i;
 	
-	Debug("[%s] Parsing line %s", __func__, String_Hexadecimal_Line); // No new line at the end of this string as the read line adds it
+	DEBUG("Parsing line %s", String_Hexadecimal_Line); // No new line at the end of this string as the read line contains a new line character yet
 	
 	// Bypass the record mark (':')
 	String_Hexadecimal_Line++;
@@ -86,31 +86,29 @@ static THexParserRecordType HexParserParseLine(char *String_Hexadecimal_Line, in
 	// Extract the record size
 	*Pointer_Data_Size = HexParserConvertHexadecimalNumberToByte(String_Hexadecimal_Line[0], String_Hexadecimal_Line[1]);
 	String_Hexadecimal_Line += 2;
-	Debug("[%s] Record data size = %d\n", __func__, *Pointer_Data_Size);
+	DEBUG("Record data size = %d.\n", *Pointer_Data_Size);
 	
 	// Extract the load offset
 	*Pointer_Load_Offset = HexParserConvertHexadecimalNumberToByte(String_Hexadecimal_Line[0], String_Hexadecimal_Line[1]) << 8;
 	*Pointer_Load_Offset |= HexParserConvertHexadecimalNumberToByte(String_Hexadecimal_Line[2], String_Hexadecimal_Line[3]);
 	String_Hexadecimal_Line += 4;
-	Debug("[%s] Record load offset = 0x%04X\n", __func__, *Pointer_Load_Offset);
+	DEBUG("Record load offset = 0x%04X.\n", *Pointer_Load_Offset);
 	
 	// Extract the record type
 	Record_Type = HexParserConvertHexadecimalNumberToByte(String_Hexadecimal_Line[0], String_Hexadecimal_Line[1]);
 	String_Hexadecimal_Line += 2;
-	Debug("[%s] Record type = %d\n", __func__, Record_Type);
+	DEBUG("Record type = %d.\n", Record_Type);
 	
-	// Convert the data if there are provided
-	Debug("[%s] Data : ", __func__);
+	// Convert the data if they are provided
 	for (i = 0; i < *Pointer_Data_Size; i++)
 	{
 		*Pointer_Data = HexParserConvertHexadecimalNumberToByte(String_Hexadecimal_Line[0], String_Hexadecimal_Line[1]);
-		Debug("0x%02X ", *Pointer_Data);
+		DEBUG("Data byte %d/%d = 0x%02X.\n", i + 1, *Pointer_Data_Size, *Pointer_Data);
 		Pointer_Data++;
 		String_Hexadecimal_Line += 2;
 	}
-	Debug("\n");
 	
-	return Record_Type;	
+	return Record_Type;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -140,18 +138,18 @@ int HexParserConvertHexToBinary(char *String_Hex_File, int Microcontroller_Memor
 	while (fgets(String_Record_Line, sizeof(String_Record_Line), File_Hex) != NULL)
 	{
 		Current_Line_Number++;
-		Debug("[%s] Processing line %d\n", __func__, Current_Line_Number);
+		DEBUG("Processing line %d.\n", Current_Line_Number);
 		
 		// Get the record type
 		Record_Type = HexParserParseLine(String_Record_Line, &Data_Size, &Load_Offset, Data);
 		switch (Record_Type)
 		{
 			case HEX_PARSER_RECORD_TYPE_DATA:
-				Debug("[%s] Record type : data\n", __func__);
+				DEBUG("Record type : data.\n");
 				
 				// Compute the instruction address
 				Current_Address = (Current_Address_High_Word << 16) | Load_Offset;
-				Debug("[%s] Instruction address : 0x%08X.\n", __func__, Current_Address);
+				DEBUG("Instruction address : 0x%08X.\n", Current_Address);
 				
 				// Check address consistency (an address can't be lower than the base address)
 				if (Current_Address < Firmware_Base_Address)
@@ -162,6 +160,7 @@ int HexParserConvertHexToBinary(char *String_Hex_File, int Microcontroller_Memor
 				
 				// Put the instruction at the right memory place only if the instruction is in the firmware space (not the configuration registers location)
 				if (Current_Address < Microcontroller_Memory_Size) memcpy(&Pointer_Microcontroller_Memory[Current_Address], Data, Data_Size);
+				else DEBUG("Instruction address is out of memory bound, discard it.\n");
 				
 				// Find the highest address used in the program, so we can omit the remaining memory and shorten the output file (in order to shorten the flashing time)
 				Data_Size += Current_Address; // Compute the last address of this record into Data_Size (recycling the variable)
@@ -169,22 +168,22 @@ int HexParserConvertHexToBinary(char *String_Hex_File, int Microcontroller_Memor
 				break;
 				
 			case HEX_PARSER_RECORD_TYPE_END_OF_FILE:
-				Debug("[%s] Record type : end of file\n", __func__);
+				DEBUG("Record type : end of file, exiting.\n");
 				break;
 
 			// Allow to define the upper bits of a 32-bit Linear Base Address
 			case HEX_PARSER_RECORD_TYPE_EXTENDED_LINEAR_ADDRESS:
-				Debug("[%s] Record type : extended linear address\n", __func__);
+				DEBUG("Record type : extended linear address.\n");
 
 				Current_Address_High_Word = (Data[0] << 8) | Data[1];
-				Debug("[%s] Current address changed to 0x%08X.\n", __func__, Current_Address_High_Word << 16);
+				DEBUG("Current address changed to 0x%08X.\n", Current_Address_High_Word << 16);
 				break;
 
 			default:
 				printf("The line %d contains an unrecognized record (0x%02X). Aborting conversion.\n", Current_Line_Number, Record_Type);
 				goto Exit;
 		}
-		Debug("\n");
+		DEBUG("Line %d has been successfully processed.\n\n", Current_Line_Number);
 	}
 	
 	// Return the firmware size
